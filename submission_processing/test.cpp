@@ -1,6 +1,14 @@
 #include <iostream>
+#include <string>
 
 int main() 
 {
-    std::cout << "This works!";
+    std::string input;
+    std::cin >> input;
+    if (input == "123"){
+        std::cout << "test1";
+    }
+    else if (input == "456"){
+        std::cout << "test2";
+    }
 }

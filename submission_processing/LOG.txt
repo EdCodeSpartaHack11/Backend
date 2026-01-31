@@ -1,0 +1,26 @@
+0: Process 1: Ready -> Running
+4: Process 1: Running -> Halted
+4: Process 3: Ready -> Running
+7: Process 3: Running -> Blocked
+7: Process 5: Ready -> Running
+9: Process 5: Running -> Blocked
+9: Process 4: Ready -> Running
+11: Process 3: Blocked -> Ready
+11: Process 5: Blocked -> Ready
+13: Process 4: Running -> Halted
+13: Process 2: Ready -> Running
+18: Process 2: Running -> Ready
+18: Process 3: Ready -> Running
+21: Process 3: Running -> Halted
+21: Process 5: Ready -> Running
+26: Process 5: Running -> Ready
+26: Process 2: Ready -> Running
+29: Process 2: Running -> Blocked
+29: Process 5: Ready -> Running
+33: Process 5: Running -> Halted
+33: CPU Idle
+34: Process 2: Blocked -> Ready
+34: Process 2: Ready -> Running
+39: Process 2: Running -> Ready
+39: Process 2: Ready -> Running
+40: Process 2: Running -> Halted

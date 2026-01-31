@@ -1,0 +1,8 @@
+5
+instruction1
+instruction2
+SYS_CALL, NETWORK 3
+instruction4
+instruction5
+SYS_CALL, TERMINATE
+instruction7

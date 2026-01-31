@@ -1,0 +1,12 @@
+4
+instruction1
+SYS_CALL, IO 2
+instruction3
+instruction4
+instruction5
+instruction6
+instruction7
+instruction8
+instruction9
+instruction10
+SYS_CALL, TERMINATE
