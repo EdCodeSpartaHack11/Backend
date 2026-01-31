@@ -7,13 +7,13 @@
       "testcases": [
         {
           "id": "tc1",
-          "input" : "../schemas_files/input_1_1.txt",
-          "output": "../schemas_files/test_1_1.txt"
+          "input" : "input_1_1.txt",
+          "output": "test_1_1.txt"
         },
         {
           "id": "tc2",
-          "input" : "../schemas_files/input_1_2.txt",
-          "output": "../schemas_files/test_1_2.txt"
+          "input" : "input_1_2.txt",
+          "output": "test_1_2.txt"
         }
       ]
     },
@@ -25,7 +25,7 @@
         {
           "id": "tc1",
           "input" : "input_2_1.txt",
-          "output": "testcases/project_2/output1.txt"
+          "output": "output1.txt"
         }
       ]
     }

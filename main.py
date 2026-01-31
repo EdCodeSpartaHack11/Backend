@@ -3,11 +3,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from core.config import settings
 from auth import router as auth_router#, get_current_user
-from routers.submit import router as rt
+from routers.submit import router as submit_router
 
 app = FastAPI()
 #app.include_router(auth_router)
-app.include_router(rt)
+app.include_router(submit_router)
 
 @app.get("/health")
 def health():
