@@ -2,6 +2,7 @@ from authlib.integrations.starlette_client import OAuth
 from core.config import settings
 
 oauth = OAuth()
+
 oauth.register(
     name="google",
     client_id=settings.google_client_id,
