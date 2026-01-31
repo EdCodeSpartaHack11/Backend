@@ -1,11 +1,13 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from auth.router import router as auth_router
-from routers.ai_router import router as ai_router
+from fastapi import FastAPI, Depends
+from starlette.middleware.sessions import SessionMiddleware
+
+from core.config import settings
+from auth import router as auth_router#, get_current_user
+from routers.submit import router as rt
 
 app = FastAPI()
-app.include_router(auth_router)
-app.include_router(ai_router)
+#app.include_router(auth_router)
+app.include_router(rt)
 
 @app.get("/health")
 def health():

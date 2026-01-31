@@ -1,0 +1,6 @@
+0: Process 1: Ready -> Running
+0: Process 1: ADD R1, R2, R3
+1: Process 1: SUB R4, R5, 10
+2: Process 1: MUL R6, R1, R2
+3: Process 1: SYS_CALL, TERMINATE
+3: Process 1: Running -> Halted

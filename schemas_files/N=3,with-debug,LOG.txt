@@ -1,0 +1,44 @@
+0: Process 1: Ready -> Running
+0: Process 1: ADD R1, R2, R3
+1: Process 1: SUB R4, R5, 10
+2: Process 1: MUL R6, R1, R2
+3: Process 1: SYS_CALL, TERMINATE
+3: Process 1: Running -> Halted
+3: Process 3: Ready -> Running
+4: Process 3: instruction1
+5: Process 3: instruction2
+6: Process 3: SYS_CALL, NETWORK 3
+6: Process 3: Running -> Blocked
+6: Process 2: Ready -> Running
+7: Process 2: ADD R1, R2, R3
+8: Process 2: SUB R4, R5, 10
+9: Process 2: MUL R6, R1, R2
+9: Process 3: Blocked -> Ready
+10: Process 2: DIV R3, R4, R5
+11: Process 2: LOAD R6, [R7+4]
+11: Process 2: Running -> Ready
+11: Process 3: Ready -> Running
+12: Process 3: instruction4
+13: Process 3: instruction5
+14: Process 3: SYS_CALL, TERMINATE
+14: Process 3: Running -> Halted
+14: Process 2: Ready -> Running
+15: Process 2: STORE R6, [R8]
+16: Process 2: ADD R2, R3, R4
+17: Process 2: SYS_CALL, IO 4
+17: Process 2: Running -> Blocked
+18: CPU Idle
+19: CPU Idle
+20: CPU Idle
+21: CPU Idle
+21: Process 2: Blocked -> Ready
+22: Process 2: Ready -> Running
+22: Process 2: SUB R5, R6, R7
+23: Process 2: MUL R8, R9, R1
+24: Process 2: LOAD R2, [R3+8]
+25: Process 2: STORE R4, [R5]
+26: Process 2: ADD R7, R8, R9
+26: Process 2: Running -> Ready
+26: Process 2: Ready -> Running
+27: Process 2: SYS_CALL, TERMINATE
+27: Process 2: Running -> Halted

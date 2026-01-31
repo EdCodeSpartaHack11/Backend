@@ -1,0 +1,33 @@
+{
+  "projects": {
+    "1": {
+      "name": "5 State Processor Model",
+      "time_limit_sec": 1.0,
+      "memory_limit_mb": 256,
+      "testcases": [
+        {
+          "id": "tc1",
+          "input" : "../schemas_files/input_1_1.txt",
+          "output": "../schemas_files/test_1_1.txt"
+        },
+        {
+          "id": "tc2",
+          "input" : "../schemas_files/input_1_2.txt",
+          "output": "../schemas_files/test_1_2.txt"
+        }
+      ]
+    },
+    "2": {
+      "name": "Algorithm Project",
+      "time_limit_sec": 2.0,
+      "memory_limit_mb": 512,
+      "testcases": [
+        {
+          "id": "tc1",
+          "input" : "input_2_1.txt",
+          "output": "testcases/project_2/output1.txt"
+        }
+      ]
+    }
+  }
+}
