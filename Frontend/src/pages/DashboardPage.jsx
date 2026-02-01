@@ -138,53 +138,57 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
   const isTrack = variant === "track";
   const isProject = variant === "project";
 
-  // Define colors based on variant
+  // Game-like styling: Square tiles, thick borders
   let bg, border, titleColor, subColor, shadow;
 
   if (isTrack) {
     bg = "#ecfdf5";
-    border = "#10b981";
-    titleColor = "#065f46";
+    border = "#059669"; // Green-600
+    titleColor = "#064e3b";
     subColor = "#047857";
-    shadow = "0 8px 20px rgba(16, 185, 129, 0.15)";
+    shadow = "0 6px 0 #059669"; // 3D blocky shadow
   } else if (isProject) {
-    bg = "#fef2f2"; // red-50
-    border = "#ef4444"; // red-500
-    titleColor = "#991b1b"; // red-800
-    subColor = "#b91c1c"; // red-700
-    shadow = "0 4px 12px rgba(239, 68, 68, 0.15)";
+    bg = "#fef2f2";
+    border = "#dc2626"; // Red-600
+    titleColor = "#991b1b";
+    subColor = "#b91c1c";
+    shadow = "0 6px 0 #dc2626";
   } else {
-    // Default (Yellow for parts)
-    bg = "#fefce8"; // yellow-50
-    border = "#eab308"; // yellow-500
-    titleColor = "#854d0e"; // yellow-900
-    subColor = "#a16207"; // yellow-800
-    shadow = "0 4px 12px rgba(234, 179, 8, 0.15)";
+    // Default (Part)
+    bg = "#fffbeb";
+    border = "#d97706"; // Amber-600
+    titleColor = "#78350f";
+    subColor = "#92400e";
+    shadow = "0 6px 0 #d97706";
   }
+
+  const dimension = 140; // Square size
 
   return (
     <div
       onClick={onClick}
       style={{
-        width: isTrack ? 320 : 240,
-        padding: isTrack ? "16px 20px" : "10px 12px",
-        borderRadius: isTrack ? 14 : 10,
+        width: dimension,
+        height: dimension,
+        padding: "16px",
+        borderRadius: 16,
         background: bg,
-        border: `2px solid ${border}`,
+        border: `3px solid ${border}`,
         boxShadow: shadow,
         cursor: isClickable ? "pointer" : "default",
-        transition: isClickable ? "all 0.2s ease" : "none",
+        transition: isClickable ? "all 0.1s ease" : "none",
         transform: "translateY(0)",
-        textAlign: isTrack ? "center" : "left",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        textAlign: "center",
+        position: "relative",
       }}
       onMouseEnter={(e) => {
         if (isClickable) {
-          e.currentTarget.style.transform = "translateY(-2px)";
-          e.currentTarget.style.boxShadow = isTrack
-            ? "0 10px 25px rgba(16, 185, 129, 0.25)"
-            : isProject
-              ? "0 8px 20px rgba(239, 68, 68, 0.25)"
-              : "0 8px 20px rgba(234, 179, 8, 0.25)";
+          e.currentTarget.style.transform = "translateY(-4px)";
+          e.currentTarget.style.boxShadow = `0 10px 0 ${border}`;
         }
       }}
       onMouseLeave={(e) => {
@@ -193,42 +197,162 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
           e.currentTarget.style.boxShadow = shadow;
         }
       }}
+      onMouseDown={(e) => {
+        if (isClickable) {
+          e.currentTarget.style.transform = "translateY(4px)";
+          e.currentTarget.style.boxShadow = `0 2px 0 ${border}`;
+        }
+      }}
+      onMouseUp={(e) => {
+        if (isClickable) {
+          e.currentTarget.style.transform = "translateY(-4px)";
+          e.currentTarget.style.boxShadow = `0 10px 0 ${border}`;
+        }
+      }}
     >
       <div
         style={{
           fontWeight: 800,
           color: titleColor,
-          marginBottom: 4,
-          fontSize: isTrack ? 16 : 14,
+          marginBottom: 8,
+          fontSize: 15,
+          lineHeight: 1.3,
+          maxHeight: 60,
+          overflow: "hidden",
+          display: "-webkit-box",
+          WebkitLineClamp: 3,
+          WebkitBoxOrient: "vertical",
         }}
       >
         {title}
       </div>
-      {subtitle && subtitle !== "\n" ? (
+      {subtitle && subtitle !== "\n" && (
         <div
           style={{
-            fontSize: isTrack ? 12 : 11,
+            fontSize: 11,
+            fontWeight: 600,
             color: subColor,
+            opacity: 0.9,
             overflow: "hidden",
-            display: "-webkit-box",
-            WebkitLineClamp: isTrack ? 2 : 3,
-            WebkitBoxOrient: "vertical",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            maxWidth: "100%",
           }}
         >
           {subtitle}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
 
+const NODE_WIDTH = 140;
+const GAP_X = 80;
+
+/* =========================================================
+   ✅ NEW: subtree width helpers
+   This is the key fix so connectors span the full subtree.
+========================================================= */
+function subtreeWidth(node) {
+  if (!node?.children?.length) return NODE_WIDTH;
+
+  const childWidths = node.children.map(subtreeWidth);
+  const totalChildrenWidth =
+    childWidths.reduce((a, b) => a + b, 0) + GAP_X * (childWidths.length - 1);
+
+  return Math.max(NODE_WIDTH, totalChildrenWidth);
+}
+
+function childrenLayout(node) {
+  const childWidths = (node?.children || []).map(subtreeWidth);
+  const totalWidth =
+    childWidths.length === 0
+      ? NODE_WIDTH
+      : childWidths.reduce((a, b) => a + b, 0) + GAP_X * (childWidths.length - 1);
+  return { childWidths, totalWidth };
+}
+
+/* =========================================================
+   ✅ UPDATED: ConnectorSVG now takes childWidths (subtree-aware)
+   Kept a backward-compatible fallback for count usage.
+========================================================= */
+function ConnectorSVG({ childWidths, count }) {
+  // Back-compat: if old prop "count" passed, approximate with fixed NODE_WIDTH
+  const widths =
+    Array.isArray(childWidths) && childWidths.length > 0
+      ? childWidths
+      : Array.from({ length: Math.max(0, count || 0) }, () => NODE_WIDTH);
+
+  const n = widths.length;
+
+  if (n <= 1) {
+    return <div style={{ height: 20, width: 4, background: "#cbd5e1" }} />;
+  }
+
+  const totalWidth = widths.reduce((a, b) => a + b, 0) + (n - 1) * GAP_X;
+  const midY = 10;
+
+  // child centers based on cumulative widths
+  let accX = 0;
+  const centers = widths.map((w, i) => {
+    const c = accX + w / 2;
+    accX += w + (i < n - 1 ? GAP_X : 0);
+    return c;
+  });
+
+  const firstCenter = centers[0];
+  const lastCenter = centers[centers.length - 1];
+
+  return (
+    <div style={{ width: totalWidth, height: 20, position: "relative", marginBottom: 0 }}>
+      <svg width={totalWidth} height={20} style={{ overflow: "visible", display: "block" }}>
+        {/* Main Horizontal Bar */}
+        <path
+          d={`M ${firstCenter} ${midY} H ${lastCenter}`}
+          stroke="#cbd5e1"
+          strokeWidth="4"
+          fill="none"
+        />
+
+        {/* Vertical drops to each child */}
+        {centers.map((x, i) => (
+          <path
+            key={i}
+            d={`M ${x} ${midY} V 20`}
+            stroke="#cbd5e1"
+            strokeWidth="4"
+            fill="none"
+          />
+        ))}
+
+        {/* Connection to parent (middle of total width) */}
+        <path
+          d={`M ${totalWidth / 2} 0 V ${midY}`}
+          stroke="#cbd5e1"
+          strokeWidth="4"
+          fill="none"
+        />
+      </svg>
+    </div>
+  );
+}
+
+/* =========================================================
+   ✅ UPDATED: TreeNode now lays out children in subtree-width columns
+========================================================= */
 function TreeNode({ node, onPartClick }) {
   if (!node) return null;
 
-  const hasMultipleChildren = node.children?.length > 1;
+  const hasChildren = node.children?.length > 0;
+
+  // NEW: set this node container width = full subtree width
+  const myWidth = subtreeWidth(node);
+
+  // NEW: compute child widths so connector + row match real subtree spans
+  const { childWidths, totalWidth } = hasChildren ? childrenLayout(node) : { childWidths: [], totalWidth: 0 };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+    <div style={{ width: myWidth, display: "flex", flexDirection: "column", alignItems: "center" }}>
       <NodeCard
         title={node.name}
         subtitle={node.description || "\n"}
@@ -237,78 +361,26 @@ function TreeNode({ node, onPartClick }) {
         variant={node.project ? "project" : "default"}
       />
 
-      {node.children?.length > 0 && (
+      {hasChildren && (
         <>
-          <div style={{ height: 20, display: "flex", justifyContent: "center", alignItems: "flex-end", position: "relative" }}>
-            <div style={{ width: 2, height: 20, background: "#d1d5db" }} />
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                width: 0,
-                height: 0,
-                borderLeft: "4px solid transparent",
-                borderRight: "4px solid transparent",
-                borderTop: "6px solid #d1d5db",
-              }}
-            />
-          </div>
+          {/* Stem from parent */}
+          <div style={{ width: 4, height: 20, background: "#cbd5e1" }} />
 
-          {hasMultipleChildren && (
-            <div style={{ position: "relative", width: "100%", height: 16 }}>
-              <svg
+          {/* SVG Connector system (subtree-aware) */}
+          <ConnectorSVG childWidths={childWidths} />
+
+          {/* Children Row (each child gets a fixed-width column = its subtree width) */}
+          <div style={{ width: totalWidth, display: "flex", gap: GAP_X, alignItems: "flex-start" }}>
+            {node.children.map((child, idx) => (
+              <div
+                key={child.id}
                 style={{
-                  position: "absolute",
-                  top: 0,
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  width: `${(node.children.length - 1) * 340 + 160}px`,
-                  height: "16px",
-                  overflow: "visible",
+                  width: childWidths[idx],
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "flex-start",
                 }}
               >
-                {node.children.map((_, index) => {
-                  const totalWidth = (node.children.length - 1) * 340;
-                  const startX = totalWidth / 2 + 80;
-                  const endX = startX + (index - (node.children.length - 1) / 2) * 340;
-
-                  return (
-                    <g key={index}>
-                      <path d={`M ${startX} 0 Q ${startX} 8 ${endX} 16`} stroke="#d1d5db" strokeWidth="2" fill="none" />
-                      <polygon points={`${endX - 3},12 ${endX + 3},12 ${endX},18`} fill="#d1d5db" />
-                    </g>
-                  );
-                })}
-              </svg>
-            </div>
-          )}
-
-          <div style={{ display: "flex", gap: 60, alignItems: "flex-start" }}>
-            {node.children.map((child) => (
-              <div key={child.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                {!hasMultipleChildren && (
-                  <div style={{ height: 16, display: "flex", justifyContent: "center", alignItems: "flex-end", position: "relative" }}>
-                    <div style={{ width: 2, height: 16, background: "#d1d5db" }} />
-                    <div
-                      style={{
-                        position: "absolute",
-                        bottom: 0,
-                        width: 0,
-                        height: 0,
-                        borderLeft: "4px solid transparent",
-                        borderRight: "4px solid transparent",
-                        borderTop: "6px solid #d1d5db",
-                      }}
-                    />
-                  </div>
-                )}
-
-                {hasMultipleChildren && (
-                  <div style={{ height: 4, display: "flex", justifyContent: "center", alignItems: "center" }}>
-                    <div style={{ width: 2, height: 4, background: "#d1d5db" }} />
-                  </div>
-                )}
-
                 <TreeNode node={child} onPartClick={onPartClick} />
               </div>
             ))}
@@ -323,13 +395,19 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
   const navigate = useNavigate();
 
   const handleTrackClick = (trackId) => navigate(`/track/${trackId}`);
-  /* handlePartClick moved to Dashboard parent */
+
+  // NEW: subtree-aware forest widths for root connector
+  const forestWidths = useMemo(() => (forest || []).map(subtreeWidth), [forest]);
+  const forestTotalWidth = useMemo(() => {
+    if (!forest || forest.length === 0) return 0;
+    return forestWidths.reduce((a, b) => a + b, 0) + GAP_X * (forest.length - 1);
+  }, [forest, forestWidths]);
 
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 36, fontWeight: 900, color: "#111827", marginBottom: 16 }}>
-          Learning Paths
+          Tech Tree
         </div>
 
         <div
@@ -339,11 +417,11 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
             background: "#f8fafc",
             border: "1px solid #e2e8f0",
             borderRadius: 12,
-            marginLeft: 20,
+            marginLeft: 0,
           }}
         >
           <div style={{ fontSize: 14, fontWeight: 600, color: "#475569", marginBottom: 12 }}>
-            Select Track
+            Select Path
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {tracks.map((t) => (
@@ -351,16 +429,17 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
                 key={t.id}
                 onClick={() => onSelectTrack(t.id)}
                 style={{
-                  padding: "12px 18px",
-                  borderRadius: 10,
-                  border: selectedTrackId === t.id ? "2px solid #10b981" : "1px solid #e5e7eb",
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: selectedTrackId === t.id ? "3px solid #059669" : "2px solid #e5e7eb",
                   background: selectedTrackId === t.id ? "#ecfdf5" : "white",
-                  color: selectedTrackId === t.id ? "#065f46" : "#374151",
-                  fontWeight: selectedTrackId === t.id ? 600 : 500,
+                  color: selectedTrackId === t.id ? "#064e3b" : "#374151",
+                  fontWeight: 800,
                   cursor: "pointer",
-                  transition: "all 0.2s ease",
-                  boxShadow: selectedTrackId === t.id ? "0 2px 8px rgba(16, 185, 129, 0.2)" : "0 1px 3px rgba(0,0,0,0.1)",
+                  transition: "all 0.1s ease",
+                  boxShadow: selectedTrackId === t.id ? "0 4px 0 #059669" : "0 4px 0 #e5e7eb",
                   fontSize: 14,
+                  transform: selectedTrackId === t.id ? "translateY(2px)" : "translateY(0)",
                 }}
               >
                 {t.name || t.id}
@@ -369,125 +448,66 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
           </div>
         </div>
 
-        {loading && <div style={{ marginTop: 8, color: "#6b7280", marginLeft: 20 }}>Loading graph…</div>}
-        {error && <div style={{ marginTop: 8, color: "#b91c1c", marginLeft: 20 }}>{error}</div>}
+        {loading && <div style={{ marginTop: 8, color: "#6b7280" }}>Loading...</div>}
+        {error && <div style={{ marginTop: 8, color: "#b91c1c" }}>{error}</div>}
       </div>
 
       <div
         style={{
-          padding: 24,
-          background: "white",
-          border: "1px solid #e5e7eb",
+          padding: 40,
+          background: "#f1f5f9", // darker background for contrast
+          border: "1px solid #cbd5e1",
           borderRadius: 16,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.05)",
-          overflow: "auto",
+          boxShadow: "inset 0 0 20px rgba(0,0,0,0.05)",
+          overflowX: "auto",
+          textAlign: "center",
+          minHeight: 600,
+          backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)", // Dot grid
+          backgroundSize: "20px 20px"
         }}
       >
-        <div style={{ display: "flex", justifyContent: "center" }}>
+        <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: "100%" }}>
           <NodeCard
             title={track?.name || "Track"}
-            subtitle={track?.description || "Click to view track details"}
+            subtitle={track?.description || "Root"}
             onClick={() => track && handleTrackClick(track.id)}
             isClickable={!!track}
             variant="track"
           />
-        </div>
 
-        {forest?.length > 0 && (
-          <>
-            {/* Connection from track to forest roots */}
-            <div style={{ height: 24, display: "flex", justifyContent: "center", alignItems: "flex-end", position: "relative" }}>
-              <div style={{ width: 2, height: 24, background: "#d1d5db" }} />
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                  width: 0,
-                  height: 0,
-                  borderLeft: "4px solid transparent",
-                  borderRight: "4px solid transparent",
-                  borderTop: "6px solid #d1d5db",
-                }}
-              />
-            </div>
+          {forest?.length > 0 && (
+            <>
+              {/* Connector from root to forest */}
+              <div style={{ width: 4, height: 30, background: "#cbd5e1" }} />
 
-            {/* Multiple connections if more than one root */}
-            {forest.length > 1 && (
-              <div style={{ position: "relative", width: "100%", height: 20 }}>
-                <svg
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    width: `${(forest.length - 1) * 360 + 200}px`,
-                    height: "20px",
-                    overflow: "visible",
-                  }}
-                >
-                  {forest.map((_, index) => {
-                    const totalWidth = (forest.length - 1) * 360;
-                    const startX = totalWidth / 2 + 100;
-                    const endX = startX + (index - (forest.length - 1) / 2) * 360;
+              {/* ✅ subtree-aware root connector */}
+              <ConnectorSVG childWidths={forestWidths} />
 
-                    return (
-                      <g key={index}>
-                        <path
-                          d={`M ${startX} 0 Q ${startX} 10 ${endX} 20`}
-                          stroke="#d1d5db"
-                          strokeWidth="2"
-                          fill="none"
-                        />
-                        <polygon
-                          points={`${endX - 4},16 ${endX + 4},16 ${endX},24`}
-                          fill="#d1d5db"
-                        />
-                      </g>
-                    );
-                  })}
-                </svg>
+              {/* ✅ subtree-aware forest row */}
+              <div style={{ width: forestTotalWidth, display: "flex", gap: GAP_X, alignItems: "flex-start" }}>
+                {forest.map((root, idx) => (
+                  <div
+                    key={root.id}
+                    style={{
+                      width: forestWidths[idx],
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <TreeNode node={root} onPartClick={onPartClick} />
+                  </div>
+                ))}
               </div>
-            )}
+            </>
+          )}
 
-            <div style={{ display: "flex", justifyContent: "center", gap: 60, flexWrap: "wrap" }}>
-              {forest.map((root, index) => (
-                <div key={root.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  {/* Single root gets a straight connection, multiple roots get small connectors */}
-                  {forest.length === 1 && (
-                    <div style={{ height: 16, display: "flex", justifyContent: "center", alignItems: "flex-end", position: "relative" }}>
-                      <div style={{ width: 2, height: 16, background: "#d1d5db" }} />
-                      <div
-                        style={{
-                          position: "absolute",
-                          bottom: 0,
-                          width: 0,
-                          height: 0,
-                          borderLeft: "4px solid transparent",
-                          borderRight: "4px solid transparent",
-                          borderTop: "6px solid #d1d5db",
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {forest.length > 1 && (
-                    <div style={{ height: 8, display: "flex", justifyContent: "center", alignItems: "center" }}>
-                      <div style={{ width: 2, height: 8, background: "#d1d5db" }} />
-                    </div>
-                  )}
-
-                  <TreeNode node={root} onPartClick={onPartClick} />
-                </div>
-              ))}
+          {!loading && !error && (!forest || forest.length === 0) && (
+            <div style={{ marginTop: 24, padding: 20, background: "white", borderRadius: 8, border: "2px dashed #cbd5e1" }}>
+              <code style={{ color: "#475569" }}>No tech nodes found.</code>
             </div>
-          </>
-        )}
-
-        {!loading && !error && (!forest || forest.length === 0) && (
-          <div style={{ marginTop: 16, textAlign: "center", color: "#6b7280" }}>
-            No parts found. Make sure <code>track.parts</code> is an array of part refs/ids in the track’s parts collection.
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
