@@ -109,17 +109,26 @@ def run_test_cases(exe_path: str, part: Dict[str, Any], stdin_args: str) -> Dict
     inputs: List[str] = list(part.get("inputs", []) or [])
     outputs: List[str] = list(part.get("outputs", []) or [])
 
+    print(f"DEBUG: Found {len(inputs)} inputs and {len(outputs)} outputs")  # Debug line
+
     if len(inputs) != len(outputs):
         return {
             "status": "bad_testcase",
             "detail": f"inputs length ({len(inputs)}) != outputs length ({len(outputs)})",
         }
 
+    if len(inputs) == 0:
+        return {
+            "status": "bad_testcase",
+            "detail": "No test cases found",
+        }
+
     results = []
     all_passed = True
 
-    for i, (tc_in, expected) in enumerate(zip(inputs, outputs), start=1):
-        tc_id = f"tc{i}"
+    for i, (tc_in, expected) in enumerate(zip(inputs, outputs)):
+        tc_id = f"tc{i+1}"
+        print(f"DEBUG: Running test case {tc_id}")  # Debug line
 
         # Fix common console-copy issues (literal \n)
         tc_in = _decode_escapes_if_needed(tc_in)
@@ -135,6 +144,8 @@ def run_test_cases(exe_path: str, part: Dict[str, Any], stdin_args: str) -> Dict
         passed = (not timed_out) and (rcode == 0) and (_normalize(stdout) == _normalize(expected))
         all_passed = all_passed and passed
 
+        print(f"DEBUG: Test case {tc_id} - passed: {passed}, stdout: '{stdout}', expected: '{expected}'")  # Debug line
+
         results.append({
             "id": tc_id,
             "passed": passed,
@@ -142,7 +153,10 @@ def run_test_cases(exe_path: str, part: Dict[str, Any], stdin_args: str) -> Dict
             "exit_code": rcode,
             "stdout": stdout,
             "stderr": stderr,
+            "expected": expected,  # Add expected output for debugging
         })
+
+    print(f"DEBUG: Total test results: {len(results)}")  # Debug line
 
     return {
         "status": "accepted" if all_passed else "wrong_answer",
