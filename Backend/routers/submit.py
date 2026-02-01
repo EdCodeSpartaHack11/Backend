@@ -145,3 +145,30 @@ def submit_reading(req: ReadingSubmitRequest) -> dict:
     db.collection("contributions").document(doc_id).set(data, merge=True)
     
     return {"status": "success", "part_id": req.part_id}
+
+
+class CodingSubmitRequest(BaseModel):
+    user_id: str
+    part_id: str
+
+
+@router.post("/submit/coding")
+def submit_coding(req: CodingSubmitRequest) -> dict:
+    from users.repo import get_db
+    from datetime import datetime, timezone
+
+    db = get_db()
+    
+    # Store in 'contributions' collection
+    doc_id = f"{req.user_id}_{req.part_id}"
+    
+    data = {
+        "user_id": req.user_id,
+        "part_id": req.part_id,
+        "type": "coding",
+        "completed_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    db.collection("contributions").document(doc_id).set(data, merge=True)
+    
+    return {"status": "success", "part_id": req.part_id}

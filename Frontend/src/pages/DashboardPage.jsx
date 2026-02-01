@@ -582,19 +582,7 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
 
 export default function Dashboard() {
   const days = useMemo(() => getLastNDays(90), []);
-  const mockCounts = useMemo(() => {
-    const m = {};
-    m[formatDateKey(days[5])] = 1;
-    m[formatDateKey(days[12])] = 2;
-    m[formatDateKey(days[25])] = 1;
-    m[formatDateKey(days[35])] = 3;
-    m[formatDateKey(days[48])] = 1;
-    m[formatDateKey(days[62])] = 2;
-    m[formatDateKey(days[75])] = 1;
-    m[formatDateKey(days[82])] = 2;
-    m[formatDateKey(days[87])] = 1;
-    return m;
-  }, [days]);
+
 
   const [tracks, setTracks] = useState([]);
   const [selectedTrackId, setSelectedTrackId] = useState("");
@@ -603,6 +591,7 @@ export default function Dashboard() {
   // ✅ forest instead of single tree
   const [forest, setForest] = useState([]);
   const [completedIds, setCompletedIds] = useState(new Set()); // Start empty
+  const [contributionCounts, setContributionCounts] = useState({}); // YYYY-MM-DD -> count
 
   /* Side panel state */
   const [selectedPart, setSelectedPart] = useState(null);
@@ -707,14 +696,27 @@ export default function Dashboard() {
         const q = query(collection(db, "contributions"), where("user_id", "==", currentUser.id));
         const snap = await getDocs(q);
         const ids = new Set();
+        const counts = {};
+
         snap.forEach(doc => {
-          // Assuming doc ID is the part ID, or there's a field 'part_id'
-          // Let's use both for robustness: if doc ID looks like a part ID, add it; if field exists, add it.
-          if (doc.data().part_id) ids.add(doc.data().part_id);
+          const data = doc.data();
+          // ID Logic
+          if (data.part_id) ids.add(data.part_id);
           else ids.add(doc.id);
+
+          // Count Logic (Date Heatmap)
+          if (data.completed_at) {
+            try {
+              const dateStr = new Date(data.completed_at).toISOString().split('T')[0]; // YYYY-MM-DD
+              counts[dateStr] = (counts[dateStr] || 0) + 1;
+            } catch (e) {
+              console.warn("Invalid date in contribution:", data.completed_at);
+            }
+          }
         });
         console.log("Fetched contributions:", ids);
         setCompletedIds(ids);
+        setContributionCounts(counts);
       } catch (err) {
         console.error("Error fetching contributions:", err);
         // Don't block UI, just empty set
@@ -848,67 +850,82 @@ export default function Dashboard() {
             {user?.name || user?.email || "User"}
           </h3>
 
-          {/* Recent Activity (unchanged mock) */}
-          <div style={{ textAlign: "left" }}>
-            <h4
-              style={{
-                margin: 0,
-                fontSize: "14px",
-                fontWeight: "600",
-                color: "#374151",
-                marginBottom: "12px",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              Recent Activity
-            </h4>
+          {/* Recent Activity (GitHub Style - Light Theme) */}
+          <div style={{ textAlign: "left", background: "white", padding: "16px", borderRadius: 12, border: "1px solid #e5e7eb" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Recent Activity
+              </h4>
+              <span style={{ fontSize: 10, color: "#6b7280" }}>Last 90 Days</span>
+            </div>
 
-            <div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(15, 1fr)",
-                  gap: 1,
-                  marginBottom: "12px",
-                }}
-              >
-                {days.map((d) => {
-                  const key = formatDateKey(d);
-                  const count = mockCounts[key] || 0;
-                  const bg = count > 0 ? "#10b981" : "#f3f4f6";
-                  const border = "#e5e7eb";
-
-                  return (
-                    <div
-                      key={key}
-                      title={`${key} • ${count} contribution${count === 1 ? "" : "s"}`}
-                      style={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: "3px",
-                        background: bg,
-                        border: `1px solid ${border}`,
-                        boxShadow: count > 0 ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-                      }}
-                    />
-                  );
-                })}
+            <div style={{ display: "flex", gap: 8 }}>
+              {/* Day Labels */}
+              <div style={{ display: "grid", gridTemplateRows: "repeat(7, 1fr)", gap: 3, paddingRight: 4, height: 96 }}>
+                <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Mon</span>
+                <span />
+                <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Wed</span>
+                <span />
+                <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Fri</span>
+                <span />
+                <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Sun</span>
               </div>
 
-              <div style={{ fontSize: "11px", color: "#6b7280", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>Last 90 days</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ fontSize: "10px" }}>Less</span>
-                  <div style={{ display: "flex", gap: "2px" }}>
-                    <div style={{ width: "8px", height: "8px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "2px" }} />
-                    <div style={{ width: "8px", height: "8px", background: "#10b981", border: "1px solid #e7e7eb", borderRadius: "2px" }} />
-                  </div>
-                  <span style={{ fontSize: "10px" }}>More</span>
+              <div style={{ flex: 1 }}>
+                {/* Month Labels (Approximate) */}
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, paddingLeft: 2, paddingRight: 2 }}>
+                  {[0, 30, 60].map(offset => {
+                    const d = days[offset];
+                    return (
+                      <span key={offset} style={{ fontSize: 10, color: "#6b7280" }}>
+                        {d ? d.toLocaleString('default', { month: 'short' }) : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* The Grid */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateRows: "repeat(7, 1fr)",
+                  gridAutoFlow: "column",
+                  gap: 3,
+                  height: 96
+                }}>
+                  {/* Padding for start day (Mon start) */}
+                  {Array.from({ length: (days[0].getDay() + 6) % 7 }).map((_, i) => (
+                    <div key={`pad-${i}`} style={{ width: 10, height: 10 }} />
+                  ))}
+
+                  {days.map((d) => {
+                    const key = formatDateKey(d);
+                    const count = contributionCounts[key] || 0;
+
+                    // Purple/Pink Theme (Light Background)
+                    let bg = "#f3f4f6"; // Empty - light gray
+                    if (count > 0) bg = "#ddd6fe"; // Purple 200
+                    if (count > 1) bg = "#c084fc"; // Purple 400
+                    if (count > 3) bg = "#f472b6"; // Pink 400
+
+                    return (
+                      <div
+                        key={key}
+                        title={`${key}: ${count} contribution${count === 1 ? "" : "s"}`}
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 2,
+                          background: bg,
+                          border: count === 0 ? "1px solid #e5e7eb" : "none"
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             </div>
           </div>
+
         </div>
       </aside>
 
@@ -1031,8 +1048,9 @@ export default function Dashboard() {
               )}
             </div>
           </>
-        )}
-      </main>
-    </div>
+        )
+        }
+      </main >
+    </div >
   );
 }
