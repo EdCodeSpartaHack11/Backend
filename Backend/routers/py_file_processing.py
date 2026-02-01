@@ -130,8 +130,10 @@ def run_test_cases(py_path: str, part: Dict[str, Any], stdin_args: str) -> Dict[
 
     inputs: List[str] = list(part.get("inputs", []) or [])
     outputs: List[str] = list(part.get("outputs", []) or [])
-
-    print(f"DEBUG: Found {len(inputs)} inputs and {len(outputs)} outputs")  # Debug line
+    
+    if not outputs:
+         # Try singular 'output' key if 'outputs' is empty
+         outputs = list(part.get("output", []) or [])
 
     if len(inputs) != len(outputs):
         return {
@@ -148,9 +150,8 @@ def run_test_cases(py_path: str, part: Dict[str, Any], stdin_args: str) -> Dict[
     results = []
     all_passed = True
 
-    for i, (tc_in, expected) in enumerate(zip(inputs, outputs)):
-        tc_id = f"tc{i+1}"
-        print(f"DEBUG: Running test case {tc_id}")  # Debug line
+    for i, (tc_in, expected) in enumerate(zip(inputs, outputs), start=1):
+        tc_id = f"tc{i}"
 
         # Fix common console-copy issues (literal \n)
         tc_in = _decode_escapes_if_needed(tc_in)
@@ -166,7 +167,8 @@ def run_test_cases(py_path: str, part: Dict[str, Any], stdin_args: str) -> Dict[
         passed = (not timed_out) and (rcode == 0) and (_normalize(stdout) == _normalize(expected))
         all_passed = all_passed and passed
 
-        print(f"DEBUG: Test case {tc_id} - passed: {passed}, stdout: '{stdout}', expected: '{expected}'")  # Debug line
+        passed = (not timed_out) and (rcode == 0) and (_normalize(stdout) == _normalize(expected))
+        all_passed = all_passed and passed
 
         results.append({
             "id": tc_id,
@@ -175,10 +177,8 @@ def run_test_cases(py_path: str, part: Dict[str, Any], stdin_args: str) -> Dict[
             "exit_code": rcode,
             "stdout": stdout,
             "stderr": stderr,
-            "expected": expected,  # Add expected output for debugging
+            # "expected": expected,  # Optional: keep if frontend needs it for diff
         })
-
-    print(f"DEBUG: Total test results: {len(results)}")  # Debug line
 
     return {
         "status": "accepted" if all_passed else "wrong_answer",
