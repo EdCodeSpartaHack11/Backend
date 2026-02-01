@@ -56,6 +56,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .cpp_file_compile import run_submission
+from .py_file_processing import run_python_submission
 
 router = APIRouter()
 
@@ -73,16 +74,24 @@ class CompleteRequest(BaseModel):
 
 @router.post("/submit")
 def submit(req: SubmitRequest) -> dict:
-    # For hackathon: support only C++ for now
-    if req.language.lower() not in {"cpp", "c++"}:
-        raise HTTPException(status_code=400, detail="Only C++ is supported right now (language=cpp).")
+    # For hackathon: support only C++ and Python for now
+    if req.language.lower() not in {"cpp", "c++", "python", "py"}:
+        raise HTTPException(status_code=400, detail="Only C++ and Python are supported right now (language=cpp|python).")
 
-    result = run_submission(
-        project_id=req.project_id,
-        language=req.language,
-        code=req.code,
-        stdin_args=req.stdin_args or "",
+    if req.language.lower() in {"cpp", "c++"}:
+        result = run_submission(
+            project_id=req.project_id,
+            language=req.language,
+            code=req.code,
+            stdin_args=req.stdin_args or "",
     )
+    elif req.language.lower() in {"python", "py"}:
+        result = run_python_submission(
+            project_id=req.project_id,
+            language=req.language,
+            code=req.code,
+            stdin_args=req.stdin_args or "",
+        )
 
     if result.get("status") == "unknown_project":
         raise HTTPException(status_code=404, detail=f"Unknown project_id: {req.project_id}")
