@@ -4,8 +4,56 @@ from typing import Optional, Dict, Any
 
 import os
 import firebase_admin
-from firebase_admin import firestore
+from firebase_admin import credentials, firestore
 from google.auth.exceptions import DefaultCredentialsError
+
+# --- Mock DB Implementation ---
+class MockSnapshot:
+    def __init__(self, data):
+        self._data = data
+        self.exists = data is not None
+
+    def to_dict(self):
+        return self._data
+
+class MockDocument:
+    def __init__(self, collection_data, doc_id):
+        self._collection = collection_data
+        self.id = doc_id
+
+    def get(self):
+        return MockSnapshot(self._collection.get(self.id))
+
+    def set(self, data, merge=False):
+        if merge and self.id in self._collection:
+            self._collection[self.id].update(data)
+        else:
+            self._collection[self.id] = data
+
+    def update(self, data):
+        if self.id in self._collection:
+            self._collection[self.id].update(data)
+
+class MockCollection:
+    def __init__(self):
+        self._docs = {}
+
+    def document(self, doc_id):
+        return MockDocument(self._docs, doc_id)
+
+class MockDB:
+    def __init__(self):
+        self._collections = {}
+        print("\n" + "="*50)
+        print(" WARNING: RUNNING WITH MOCK IN-MEMORY DATABASE ")
+        print("="*50 + "\n")
+
+    def collection(self, name):
+        if name not in self._collections:
+            self._collections[name] = MockCollection()
+        return self._collections[name]
+
+# --- End Mock DB ---
 
 _db = None
 
@@ -16,15 +64,25 @@ def get_db():
 
     try:
         if not firebase_admin._apps:
-            firebase_admin.initialize_app()  # uses GOOGLE_APPLICATION_CREDENTIALS or ADC
+            # Try to load from known path
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            # base_dir should be .../app
+            cred_path = os.path.join(base_dir, "Secrets", "firebase-admin.json")
+            
+            if os.path.exists(cred_path):
+                print(f"Loading credentials from: {cred_path}")
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+            else:
+                # Fallback to default (ENV VAR)
+                firebase_admin.initialize_app()
+                
         _db = firestore.client()
         return _db
-    except DefaultCredentialsError as e:
-        # Raise a clear runtime error only when DB is actually used
-        raise RuntimeError(
-            "Firestore credentials missing. Set GOOGLE_APPLICATION_CREDENTIALS to your "
-            "Firebase service account JSON, or run `gcloud auth application-default login`."
-        ) from e
+    except (DefaultCredentialsError, FileNotFoundError, RuntimeError, Exception) as e:
+        print(f"Firebase init failed ({e}). Falling back to MockDB.")
+        _db = MockDB()
+        return _db
 
 
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
