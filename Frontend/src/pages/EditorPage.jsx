@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 
 const EditorPage = () => {
@@ -9,6 +10,9 @@ const EditorPage = () => {
   const [isOutputOpen, setIsOutputOpen] = useState(false)
   const [rightPanelView, setRightPanelView] = useState('assistant')
   const [language, setLanguage] = useState('javascript')
+
+  const [searchParams] = useSearchParams()
+  const partId = searchParams.get('partId')
 
   // Chat state
   const [messages, setMessages] = useState([])
@@ -27,9 +31,52 @@ const EditorPage = () => {
     if (isNearBottom) el.scrollTop = el.scrollHeight
   }, [messages])
 
-  const handleRun = () => {
-    setOutput('> Running code...\n\n' + code + '\n\n✓ Code executed successfully!')
+  const handleRun = async () => {
     setIsOutputOpen(true)
+    setOutput('> Preparing execution request...')
+
+    // Construct payload
+    // "Language is cpp if c++ is selected" -> Mapping logic
+    let lang = language
+    if (language === 'cpp' || language === 'c++') {
+      lang = 'cpp'
+    }
+
+    const payload = {
+      project_id: partId || "default_project",
+      language: lang,
+      stdin_args: "",
+      code: code
+    }
+    console.log("Execution Payload:", payload)
+
+    console.log("Execution Payload:", payload)
+
+    try {
+      const response = await fetch('http://localhost:8000/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status} ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      console.log("Execution Response:", data)
+
+      // Assuming reponse might correspond to stdout or similar. 
+      // Adjust based on actual server response structure. 
+      // For now, dumping the JSON.
+      setOutput(`> Request sent successfully!\n\nResponse:\n${JSON.stringify(data, null, 2)}`)
+
+    } catch (err) {
+      console.error("Execution failed:", err)
+      setOutput(`> Execution failed: ${err.message}`)
+    }
   }
 
   const toggleOutput = () => {
