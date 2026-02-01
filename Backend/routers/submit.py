@@ -110,3 +110,29 @@ def complete(req: CompleteRequest):
     except Exception as e:
         print(f"Error logging contribution: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+class ReadingSubmitRequest(BaseModel):
+    user_id: str
+    part_id: str
+
+
+@router.post("/submit/reading")
+def submit_reading(req: ReadingSubmitRequest) -> dict:
+    from users.repo import get_db
+    from datetime import datetime, timezone
+
+    db = get_db()
+    
+    # Store in 'contributions' collection
+    # Use a deterministic ID so we don't duplicate if they click multiple times
+    doc_id = f"{req.user_id}_{req.part_id}"
+    
+    data = {
+        "user_id": req.user_id,
+        "part_id": req.part_id,
+        "type": "reading",
+        "completed_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    db.collection("contributions").document(doc_id).set(data, merge=True)
+    
+    return {"status": "success", "part_id": req.part_id}

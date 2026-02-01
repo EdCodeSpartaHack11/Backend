@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   collection,
   getDocs,
@@ -6,6 +6,7 @@ import {
   getDoc,
   query,
   orderBy,
+  where,
 } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
@@ -69,15 +70,17 @@ async function loadTracksOrderedByName() {
 /**
  * Builds a DOWNWARD TREE from a single root part id in the chosen parts collection.
  */
-async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, visited, nodeCountRef) {
+async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, visited, nodeCountRef, completedIds = new Set()) {
   const { maxDepth = 10, maxNodes = 500 } = opts;
 
   const colPath = normalizeCollectionPath(partsCollectionPath);
   if (!rootPartId || !colPath) return null;
 
-  async function dfs(partId, depth) {
+  // recursive DFS
+  // parentCompleted: boolean (default true for root)
+  async function dfs(partId, depth, parentCompleted) {
     if (!partId) return null;
-    if (visited.has(partId)) return null; // avoid cycles / shared nodes
+    if (visited.has(partId)) return null; // avoid cycles
     if (depth > maxDepth) return null;
     if (nodeCountRef.count >= maxNodes) return null;
 
@@ -88,12 +91,30 @@ async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, vis
     if (!partSnap.exists()) return null;
 
     const p = partSnap.data();
+
+    // Status Logic
+    const isCompleted = completedIds.has(partId);
+    let status = "locked";
+
+    if (isCompleted) {
+      status = "completed";
+    } else if (parentCompleted) {
+      status = "open";
+    }
+
+    // If this node is completed, children are unlocked (open/completed depending on their own state).
+    // If this node is NOT completed, children are locked.
+    // So we pass 'isCompleted' as 'parentCompleted' for the next level.
+    // EXCEPT: Projects might be 'open' but not 'completed', allowing access to children?
+    // Usually in tech trees, you must COMPLETE a node to unlock children. Let's stick to that.
+
     const nextArr = Array.isArray(p.next) ? p.next : [];
     const childIds = nextArr.map(refOrIdToId).filter(Boolean);
 
     const children = [];
     for (const cid of childIds) {
-      const childNode = await dfs(cid, depth + 1);
+      // Pass THIS node's completion status to children
+      const childNode = await dfs(cid, depth + 1, isCompleted);
       if (childNode) children.push(childNode);
     }
 
@@ -102,18 +123,20 @@ async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, vis
       name: p.name || `Part ${partSnap.id}`,
       description: p.description || "",
       project: p.project || false,
+      status: status,
       children,
     };
   }
 
-  return dfs(rootPartId, 0);
+  // Root is always accessible (treat parent as completed)
+  return dfs(rootPartId, 0, true);
 }
 
 /**
  * ✅ NEW: Build a FOREST from track.parts (array of refs/ids)
  * Returns: [treeRoot1, treeRoot2, ...]
  */
-async function buildPartsForest(trackParts, partsCollectionPath, opts = {}) {
+async function buildPartsForest(trackParts, partsCollectionPath, completedIds = new Set(), opts = {}) {
   const roots = Array.isArray(trackParts) ? trackParts : [];
   const rootIds = roots.map(refOrIdToId).filter(Boolean);
 
@@ -124,7 +147,7 @@ async function buildPartsForest(trackParts, partsCollectionPath, opts = {}) {
 
   const trees = [];
   for (const rid of rootIds) {
-    const tree = await buildPartsTreeFromRoot(rid, partsCollectionPath, opts, visited, nodeCountRef);
+    const tree = await buildPartsTreeFromRoot(rid, partsCollectionPath, opts, visited, nodeCountRef, completedIds);
     if (tree) trees.push(tree);
   }
   return trees;
@@ -133,10 +156,16 @@ async function buildPartsForest(trackParts, partsCollectionPath, opts = {}) {
 // ----------------------
 // UI components
 // ----------------------
+import { Lock, Check } from "lucide-react";
+
 // Variants: 'track', 'project', 'default'
-function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "default" }) {
+// Status: 'locked', 'completed', 'open' (default)
+function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "default", status = "open" }) {
   const isTrack = variant === "track";
   const isProject = variant === "project";
+
+  const isLocked = status === "locked";
+  const isCompleted = status === "completed";
 
   // Game-like styling: Square tiles, thick borders
   let bg, border, titleColor, subColor, shadow;
@@ -162,11 +191,24 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
     shadow = "0 6px 0 #d97706";
   }
 
+  // Override styles for Locked state
+  if (isLocked) {
+    bg = "#f3f4f6"; // gray-100
+    border = "#9ca3af"; // gray-400
+    titleColor = "#6b7280"; // gray-500
+    subColor = "#9ca3af";
+    shadow = "0 4px 0 #9ca3af"; // flatter shadow
+    isClickable = false; // Disable click
+  }
+
+  // Override styles for Completed state (Gold/Green tint or just badge?)
+  // Let's keep the color but add a visual indicator
+
   const dimension = 140; // Square size
 
   return (
     <div
-      onClick={onClick}
+      onClick={isLocked ? undefined : onClick}
       style={{
         width: dimension,
         height: dimension,
@@ -184,6 +226,8 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
         alignItems: "center",
         textAlign: "center",
         position: "relative",
+        opacity: isLocked ? 0.8 : 1,
+        filter: isLocked ? "grayscale(100%)" : "none",
       }}
       onMouseEnter={(e) => {
         if (isClickable) {
@@ -210,6 +254,28 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
         }
       }}
     >
+      {/* Status Badges */}
+      {isLocked && (
+        <div style={{ marginBottom: 8 }}>
+          <Lock size={24} color="#6b7280" strokeWidth={3} />
+        </div>
+      )}
+
+      {isCompleted && (
+        <div style={{
+          position: "absolute",
+          top: -10,
+          right: -10,
+          background: "#fbbf24", // Gold
+          borderRadius: "50%",
+          padding: 6,
+          border: "3px solid white",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+        }}>
+          <Check size={16} color="white" strokeWidth={4} />
+        </div>
+      )}
+
       <div
         style={{
           fontWeight: 800,
@@ -359,6 +425,7 @@ function TreeNode({ node, onPartClick }) {
         onClick={() => onPartClick(node)}
         isClickable
         variant={node.project ? "project" : "default"}
+        status={node.status || "open"}
       />
 
       {hasChildren && (
@@ -535,6 +602,7 @@ export default function Dashboard() {
 
   // ✅ forest instead of single tree
   const [forest, setForest] = useState([]);
+  const [completedIds, setCompletedIds] = useState(new Set()); // Start empty
 
   /* Side panel state */
   const [selectedPart, setSelectedPart] = useState(null);
@@ -547,23 +615,114 @@ export default function Dashboard() {
 
   const navigate = useNavigate();
 
+  // Scroll detection for side panel
+  const panelRef = useRef(null);
+  const [hasScrolledBottom, setHasScrolledBottom] = useState(false);
+  const [isMarkingComplete, setIsMarkingComplete] = useState(false);
+
+  // Reset scroll state when part changes
+  useEffect(() => {
+    setHasScrolledBottom(false);
+    if (panelRef.current) {
+      panelRef.current.scrollTop = 0;
+      // Check iteratively in case of layout shifts or short content
+      const checkScroll = () => {
+        if (panelRef.current) {
+          const { scrollHeight, clientHeight } = panelRef.current;
+          if (scrollHeight <= clientHeight + 20) {
+            setHasScrolledBottom(true);
+          }
+        }
+      };
+      // Run immediately and after a short tick for layout
+      checkScroll();
+      setTimeout(checkScroll, 100);
+    }
+  }, [selectedPart]);
+
+  const handlePanelScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    // Allow a small buffer (e.g. 10px)
+    if (scrollTop + clientHeight >= scrollHeight - 20) {
+      setHasScrolledBottom(true);
+    }
+  };
+
+  const handleMarkCompleted = async () => {
+    if (!selectedPart || !user || !user.id || isMarkingComplete) return;
+
+    try {
+      setIsMarkingComplete(true);
+      const res = await fetch("http://localhost:8000/submit/reading", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id, part_id: selectedPart.id })
+      });
+
+      if (res.ok) {
+        // Update local state immediately
+        setCompletedIds(prev => {
+          const next = new Set(prev);
+          next.add(selectedPart.id);
+          return next;
+        });
+        // Close panel or show success? Let's just update button state
+      } else {
+        console.error("Failed to mark complete");
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsMarkingComplete(false);
+    }
+  };
+
   // ✅ Auth Check (Guest Access Allowed)
   useEffect(() => {
     const token = localStorage.getItem("token");
     const storedUser = localStorage.getItem("user");
 
+    let currentUser = null;
     if (token && storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        currentUser = JSON.parse(storedUser);
       } catch (e) {
         console.error("Failed to parse user data", e);
-        // Fallback to placeholder
-        setUser({ name: "Placeholder User", email: "guest@example.com" });
       }
-    } else {
-      // No auth -> Placeholder User
-      setUser({ name: "Placeholder User", email: "guest@example.com" });
     }
+
+    if (!currentUser) {
+      // Fallback
+      currentUser = { name: "Placeholder User", email: "guest@example.com", isGuest: true };
+    }
+
+    setUser(currentUser);
+
+    // Fetch contributions if not guest
+    async function fetchContributions() {
+      if (currentUser.isGuest || !currentUser.id) return;
+
+      try {
+        // Find docs where user_id == currentUser.id
+        const q = query(collection(db, "contributions"), where("user_id", "==", currentUser.id));
+        const snap = await getDocs(q);
+        const ids = new Set();
+        snap.forEach(doc => {
+          // Assuming doc ID is the part ID, or there's a field 'part_id'
+          // Let's use both for robustness: if doc ID looks like a part ID, add it; if field exists, add it.
+          if (doc.data().part_id) ids.add(doc.data().part_id);
+          else ids.add(doc.id);
+        });
+        console.log("Fetched contributions:", ids);
+        setCompletedIds(ids);
+      } catch (err) {
+        console.error("Error fetching contributions:", err);
+        // Don't block UI, just empty set
+      }
+    }
+
+    fetchContributions();
+
   }, [navigate]);
 
   const handlePartClick = (node) => {
@@ -624,7 +783,7 @@ export default function Dashboard() {
         const partsPath = collectionPathFromTrack(t);
 
         // ✅ KEY CHANGE: start from track.parts (array) immediately
-        const builtForest = await buildPartsForest(t.parts, partsPath, {
+        const builtForest = await buildPartsForest(t.parts, partsPath, completedIds, {
           maxDepth: 10,
           maxNodes: 500,
         });
@@ -643,7 +802,7 @@ export default function Dashboard() {
     }
 
     build();
-  }, [selectedTrackId, tracks]);
+  }, [selectedTrackId, tracks, completedIds]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f9fafb" }}>
@@ -784,6 +943,8 @@ export default function Dashboard() {
             />
             {/* Panel */}
             <div
+              ref={panelRef}
+              onScroll={handlePanelScroll}
               style={{
                 position: "fixed",
                 top: 0,
@@ -829,8 +990,45 @@ export default function Dashboard() {
 
               {/* Placeholder for content */}
               <div style={{ marginTop: 40, height: 200, background: "#f9fafb", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>
-                Content Placeholder
+                {/* Long content simulation */}
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <p key={i}>
+                    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+                  </p>
+                ))}
               </div>
+
+              {/* Mark Completed Button */}
+              {!selectedPart.project && (
+                <div style={{ marginTop: 40, borderTop: "1px solid #e5e7eb", paddingTop: 20, display: "flex", justifyContent: "flex-end" }}>
+                  {completedIds.has(selectedPart.id) ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#059669", fontWeight: 700 }}>
+                      <Check size={24} />
+                      Completed
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleMarkCompleted}
+                      disabled={!hasScrolledBottom || isMarkingComplete}
+                      style={{
+                        padding: "12px 24px",
+                        background: hasScrolledBottom ? "#000" : "#e5e7eb",
+                        color: hasScrolledBottom ? "white" : "#9ca3af",
+                        border: "none",
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        cursor: hasScrolledBottom ? "pointer" : "not-allowed",
+                        transition: "all 0.2s ease",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8
+                      }}
+                    >
+                      {isMarkingComplete ? "Saving..." : (hasScrolledBottom ? "Mark as Completed" : "Scroll to finish")}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
