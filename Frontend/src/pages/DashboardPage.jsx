@@ -274,11 +274,11 @@ function NodeCard({
     subColor = "#047857";
     shadow = "0 6px 0 #059669"; // 3D blocky shadow
   } else if (isProject) {
-    bg = "#fef2f2";
-    border = "#dc2626"; // Red-600
-    titleColor = "#991b1b";
-    subColor = "#b91c1c";
-    shadow = "0 6px 0 #dc2626";
+    bg = "#eff6ff";
+    border = "#2563eb"; // Blue-600
+    titleColor = "#1e3a8a";
+    subColor = "#1d4ed8";
+    shadow = "0 6px 0 #2563eb";
   } else {
     // Default (Part)
     bg = "#fffbeb";
@@ -361,7 +361,7 @@ function NodeCard({
             position: "absolute",
             top: -10,
             right: -10,
-            background: "#fbbf24", // Gold
+            background: "#10b981", // Green-500
             borderRadius: "50%",
             padding: 6,
             border: "3px solid white",
@@ -1065,7 +1065,7 @@ export default function Dashboard() {
             </div>
 
             <div style={{ display: "flex", gap: 8 }}>
-              <div style={{ display: "grid", gridTemplateRows: "repeat(7, 1fr)", gap: 3, paddingRight: 4, height: 96 }}>
+              <div style={{ display: "grid", gridTemplateRows: "repeat(7, 1fr)", gap: 3, paddingRight: 4, height: 120 }}>
                 <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Mon</span>
                 <span />
                 <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Wed</span>
@@ -1093,7 +1093,7 @@ export default function Dashboard() {
                     gridTemplateRows: "repeat(7, 1fr)",
                     gridAutoFlow: "column",
                     gap: 3,
-                    height: 96,
+                    height: 120,
                   }}
                 >
                   {Array.from({ length: (days[0].getDay() + 6) % 7 }).map((_, i) => (
@@ -1133,7 +1133,7 @@ export default function Dashboard() {
             <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: "#374151", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               Track Badges
             </h4>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
               {tracks.map((t) => {
                 const earned = !!trackBadgeEarned[t.id];
                 const stats = trackLeafStats[t.id] || { leafTotal: 0, leafDone: 0 };
@@ -1149,10 +1149,10 @@ export default function Dashboard() {
                     onClick={() => setSelectedTrackId(t.id)}
                     title={`${t.name}${earned ? " - Completed!" : ` - ${stats.leafDone}/${stats.leafTotal} completed`}`}
                     style={{
-                      padding: 8,
-                      borderRadius: 8,
+                      padding: 12,
+                      borderRadius: 12,
                       background: earned ? "#f0fdf4" : "#f9fafb",
-                      border: `1px solid ${earned ? "#86efac" : "#e5e7eb"}`,
+                      border: `2px solid ${earned ? "#86efac" : "#e5e7eb"}`,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -1166,7 +1166,7 @@ export default function Dashboard() {
                       style={{
                         width: "100%",
                         height: "auto",
-                        maxWidth: 60,
+                        maxWidth: 100,
                         opacity: earned ? 1 : 0.6
                       }}
                       onError={(e) => {
