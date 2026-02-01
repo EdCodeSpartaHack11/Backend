@@ -47,6 +47,25 @@ class MockDB:
         print("\n" + "="*50)
         print(" WARNING: RUNNING WITH MOCK IN-MEMORY DATABASE ")
         print("="*50 + "\n")
+        
+        # Seed 'parts' collection for hackathon/testing
+        # ID: cCh7Y68ZHHBFPmh92ild (from user request)
+        self.collection("parts").document("cCh7Y68ZHHBFPmh92ild").set({
+            "name": "Hello World Project",
+            "description": "Simple C++ Hello World",
+            "inputs": [""],
+            "outputs": ["Hello World\n"],
+            "time_limit_sec": 1.0,
+            "next": None
+        })
+        
+        # Also seed 'default_project' or generic IDs just in case
+        self.collection("parts").document("default_project").set({
+            "name": "Default Project",
+            "inputs": [""],
+            "outputs": ["Hello World\n"],
+            "time_limit_sec": 1.0
+        })
 
     def collection(self, name):
         if name not in self._collections:

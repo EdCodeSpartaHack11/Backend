@@ -10,8 +10,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    # Allow ANY localhost/127.0.0.1 port in dev (5173, 3000, 5174, etc.)
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
