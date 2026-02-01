@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+firebase-admin
+requests
+passlib[bcrypt]
+python-dotenv
+openai

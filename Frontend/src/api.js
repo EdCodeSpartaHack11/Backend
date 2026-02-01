@@ -13,18 +13,33 @@ export const api = {
             headers['Authorization'] = `Bearer ${token}`
         }
 
-        const response = await fetch(url, {
-            ...options,
-            headers,
-        })
+        try {
+            const response = await fetch(url, {
+                ...options,
+                headers,
+            })
 
-        const data = await response.json()
+            const text = await response.text()
+            let data
+            try {
+                data = JSON.parse(text)
+            } catch (e) {
+                // If response is not JSON
+                if (!response.ok) {
+                    throw new Error(`Server Error ${response.status}: ${text.slice(0, 100)}`)
+                }
+                data = text // Return text calls that expect it? Though this is api wrapper
+            }
 
-        if (!response.ok) {
-            throw new Error(data.detail || 'Something went wrong')
+            if (!response.ok) {
+                throw new Error(data.detail || data.message || `Error ${response.status}`)
+            }
+
+            return data
+        } catch (error) {
+            console.error('API Request Failed:', error)
+            throw error
         }
-
-        return data
     },
 
     post(endpoint, body) {
