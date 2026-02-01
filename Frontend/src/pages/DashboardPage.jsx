@@ -38,7 +38,12 @@ function getLastNDays(n = 90) {
 // Firestore helpers
 // ----------------------
 function isDocRef(x) {
-  return x && typeof x === "object" && typeof x.id === "string" && typeof x.path === "string";
+  return (
+    x &&
+    typeof x === "object" &&
+    typeof x.id === "string" &&
+    typeof x.path === "string"
+  );
 }
 
 function refOrIdToId(x) {
@@ -70,14 +75,19 @@ async function loadTracksOrderedByName() {
 /**
  * Builds a DOWNWARD TREE from a single root part id in the chosen parts collection.
  */
-async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, visited, nodeCountRef, completedIds = new Set()) {
+async function buildPartsTreeFromRoot(
+  rootPartId,
+  partsCollectionPath,
+  opts,
+  visited,
+  nodeCountRef,
+  completedIds = new Set()
+) {
   const { maxDepth = 10, maxNodes = 500 } = opts;
 
   const colPath = normalizeCollectionPath(partsCollectionPath);
   if (!rootPartId || !colPath) return null;
 
-  // recursive DFS
-  // parentCompleted: boolean (default true for root)
   async function dfs(partId, depth, parentCompleted) {
     if (!partId) return null;
     if (visited.has(partId)) return null; // avoid cycles
@@ -102,18 +112,11 @@ async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, vis
       status = "open";
     }
 
-    // If this node is completed, children are unlocked (open/completed depending on their own state).
-    // If this node is NOT completed, children are locked.
-    // So we pass 'isCompleted' as 'parentCompleted' for the next level.
-    // EXCEPT: Projects might be 'open' but not 'completed', allowing access to children?
-    // Usually in tech trees, you must COMPLETE a node to unlock children. Let's stick to that.
-
     const nextArr = Array.isArray(p.next) ? p.next : [];
     const childIds = nextArr.map(refOrIdToId).filter(Boolean);
 
     const children = [];
     for (const cid of childIds) {
-      // Pass THIS node's completion status to children
       const childNode = await dfs(cid, depth + 1, isCompleted);
       if (childNode) children.push(childNode);
     }
@@ -133,10 +136,15 @@ async function buildPartsTreeFromRoot(rootPartId, partsCollectionPath, opts, vis
 }
 
 /**
- * ✅ NEW: Build a FOREST from track.parts (array of refs/ids)
+ * ✅ Build a FOREST from track.parts (array of refs/ids)
  * Returns: [treeRoot1, treeRoot2, ...]
  */
-async function buildPartsForest(trackParts, partsCollectionPath, completedIds = new Set(), opts = {}) {
+async function buildPartsForest(
+  trackParts,
+  partsCollectionPath,
+  completedIds = new Set(),
+  opts = {}
+) {
   const roots = Array.isArray(trackParts) ? trackParts : [];
   const rootIds = roots.map(refOrIdToId).filter(Boolean);
 
@@ -147,20 +155,109 @@ async function buildPartsForest(trackParts, partsCollectionPath, completedIds = 
 
   const trees = [];
   for (const rid of rootIds) {
-    const tree = await buildPartsTreeFromRoot(rid, partsCollectionPath, opts, visited, nodeCountRef, completedIds);
+    const tree = await buildPartsTreeFromRoot(
+      rid,
+      partsCollectionPath,
+      opts,
+      visited,
+      nodeCountRef,
+      completedIds
+    );
     if (tree) trees.push(tree);
   }
   return trees;
 }
 
+/* =========================================================
+   ✅ BADGE FIX HELPERS
+   We compute leaf nodes (nodes with NO children) for each track.
+   A track badge is awarded ONLY if ALL leaf nodes under the
+   track's main roots (track.parts) are completed.
+========================================================= */
+
+async function getPartDataCached(colPath, partId, cache) {
+  const key = `${colPath}::${partId}`;
+  if (cache.has(key)) return cache.get(key);
+
+  const snap = await getDoc(doc(db, colPath, partId));
+  if (!snap.exists()) {
+    cache.set(key, null);
+    return null;
+  }
+  const data = snap.data() || {};
+  const out = { id: snap.id, data };
+  cache.set(key, out);
+  return out;
+}
+
+/**
+ * Traverse from roots and collect leaf IDs.
+ * Leaf = a node whose `next` resolves to zero valid child IDs.
+ */
+async function collectLeafIdsForTrack(track, opts = {}) {
+  const { maxDepth = 20, maxNodes = 2000 } = opts;
+
+  const colPath = normalizeCollectionPath(collectionPathFromTrack(track));
+  const rootIds = (Array.isArray(track?.parts) ? track.parts : [])
+    .map(refOrIdToId)
+    .filter(Boolean);
+
+  if (!colPath || rootIds.length === 0) {
+    return { leafIds: new Set(), allVisited: new Set() };
+  }
+
+  const cache = opts.cache || new Map(); // allow sharing across tracks
+  const visited = new Set();
+  const leafIds = new Set();
+  let nodeCount = 0;
+
+  async function dfs(partId, depth) {
+    if (!partId) return;
+    if (visited.has(partId)) return;
+    if (depth > maxDepth) return;
+    if (nodeCount >= maxNodes) return;
+
+    visited.add(partId);
+    nodeCount++;
+
+    const got = await getPartDataCached(colPath, partId, cache);
+    if (!got) return;
+
+    const nextArr = Array.isArray(got.data?.next) ? got.data.next : [];
+    const childIds = nextArr.map(refOrIdToId).filter(Boolean);
+
+    if (childIds.length === 0) {
+      leafIds.add(partId);
+      return;
+    }
+
+    for (const cid of childIds) {
+      await dfs(cid, depth + 1);
+    }
+  }
+
+  for (const rid of rootIds) {
+    await dfs(rid, 0);
+  }
+
+  return { leafIds, allVisited: visited };
+}
+
 // ----------------------
 // UI components
 // ----------------------
-import { Lock, Check } from "lucide-react";
+import { Lock, Check, Award } from "lucide-react";
 
 // Variants: 'track', 'project', 'default'
 // Status: 'locked', 'completed', 'open' (default)
-function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "default", status = "open" }) {
+function NodeCard({
+  title,
+  subtitle,
+  onClick,
+  isClickable = false,
+  variant = "default",
+  status = "open",
+}) {
   const isTrack = variant === "track";
   const isProject = variant === "project";
 
@@ -200,9 +297,6 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
     shadow = "0 4px 0 #9ca3af"; // flatter shadow
     isClickable = false; // Disable click
   }
-
-  // Override styles for Completed state (Gold/Green tint or just badge?)
-  // Let's keep the color but add a visual indicator
 
   const dimension = 140; // Square size
 
@@ -262,16 +356,18 @@ function NodeCard({ title, subtitle, onClick, isClickable = false, variant = "de
       )}
 
       {isCompleted && (
-        <div style={{
-          position: "absolute",
-          top: -10,
-          right: -10,
-          background: "#fbbf24", // Gold
-          borderRadius: "50%",
-          padding: 6,
-          border: "3px solid white",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
-        }}>
+        <div
+          style={{
+            position: "absolute",
+            top: -10,
+            right: -10,
+            background: "#fbbf24", // Gold
+            borderRadius: "50%",
+            padding: 6,
+            border: "3px solid white",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+          }}
+        >
           <Check size={16} color="white" strokeWidth={4} />
         </div>
       )}
@@ -317,7 +413,6 @@ const GAP_X = 80;
 
 /* =========================================================
    ✅ NEW: subtree width helpers
-   This is the key fix so connectors span the full subtree.
 ========================================================= */
 function subtreeWidth(node) {
   if (!node?.children?.length) return NODE_WIDTH;
@@ -340,10 +435,8 @@ function childrenLayout(node) {
 
 /* =========================================================
    ✅ UPDATED: ConnectorSVG now takes childWidths (subtree-aware)
-   Kept a backward-compatible fallback for count usage.
 ========================================================= */
 function ConnectorSVG({ childWidths, count }) {
-  // Back-compat: if old prop "count" passed, approximate with fixed NODE_WIDTH
   const widths =
     Array.isArray(childWidths) && childWidths.length > 0
       ? childWidths
@@ -358,7 +451,6 @@ function ConnectorSVG({ childWidths, count }) {
   const totalWidth = widths.reduce((a, b) => a + b, 0) + (n - 1) * GAP_X;
   const midY = 10;
 
-  // child centers based on cumulative widths
   let accX = 0;
   const centers = widths.map((w, i) => {
     const c = accX + w / 2;
@@ -370,34 +462,20 @@ function ConnectorSVG({ childWidths, count }) {
   const lastCenter = centers[centers.length - 1];
 
   return (
-    <div style={{ width: totalWidth, height: 20, position: "relative", marginBottom: 0 }}>
+    <div
+      style={{
+        width: totalWidth,
+        height: 20,
+        position: "relative",
+        marginBottom: 0,
+      }}
+    >
       <svg width={totalWidth} height={20} style={{ overflow: "visible", display: "block" }}>
-        {/* Main Horizontal Bar */}
-        <path
-          d={`M ${firstCenter} ${midY} H ${lastCenter}`}
-          stroke="#cbd5e1"
-          strokeWidth="4"
-          fill="none"
-        />
-
-        {/* Vertical drops to each child */}
+        <path d={`M ${firstCenter} ${midY} H ${lastCenter}`} stroke="#cbd5e1" strokeWidth="4" fill="none" />
         {centers.map((x, i) => (
-          <path
-            key={i}
-            d={`M ${x} ${midY} V 20`}
-            stroke="#cbd5e1"
-            strokeWidth="4"
-            fill="none"
-          />
+          <path key={i} d={`M ${x} ${midY} V 20`} stroke="#cbd5e1" strokeWidth="4" fill="none" />
         ))}
-
-        {/* Connection to parent (middle of total width) */}
-        <path
-          d={`M ${totalWidth / 2} 0 V ${midY}`}
-          stroke="#cbd5e1"
-          strokeWidth="4"
-          fill="none"
-        />
+        <path d={`M ${totalWidth / 2} 0 V ${midY}`} stroke="#cbd5e1" strokeWidth="4" fill="none" />
       </svg>
     </div>
   );
@@ -410,12 +488,10 @@ function TreeNode({ node, onPartClick }) {
   if (!node) return null;
 
   const hasChildren = node.children?.length > 0;
-
-  // NEW: set this node container width = full subtree width
   const myWidth = subtreeWidth(node);
-
-  // NEW: compute child widths so connector + row match real subtree spans
-  const { childWidths, totalWidth } = hasChildren ? childrenLayout(node) : { childWidths: [], totalWidth: 0 };
+  const { childWidths, totalWidth } = hasChildren
+    ? childrenLayout(node)
+    : { childWidths: [], totalWidth: 0 };
 
   return (
     <div style={{ width: myWidth, display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -430,13 +506,8 @@ function TreeNode({ node, onPartClick }) {
 
       {hasChildren && (
         <>
-          {/* Stem from parent */}
           <div style={{ width: 4, height: 20, background: "#cbd5e1" }} />
-
-          {/* SVG Connector system (subtree-aware) */}
           <ConnectorSVG childWidths={childWidths} />
-
-          {/* Children Row (each child gets a fixed-width column = its subtree width) */}
           <div style={{ width: totalWidth, display: "flex", gap: GAP_X, alignItems: "flex-start" }}>
             {node.children.map((child, idx) => (
               <div
@@ -458,12 +529,20 @@ function TreeNode({ node, onPartClick }) {
   );
 }
 
-function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, onSelectTrack, onPartClick }) {
+function TrackGraph({
+  track,
+  forest,
+  loading,
+  error,
+  tracks,
+  selectedTrackId,
+  onSelectTrack,
+  onPartClick,
+}) {
   const navigate = useNavigate();
 
   const handleTrackClick = (trackId) => navigate(`/track/${trackId}`);
 
-  // NEW: subtree-aware forest widths for root connector
   const forestWidths = useMemo(() => (forest || []).map(subtreeWidth), [forest]);
   const forestTotalWidth = useMemo(() => {
     if (!forest || forest.length === 0) return 0;
@@ -522,15 +601,15 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
       <div
         style={{
           padding: 40,
-          background: "#f1f5f9", // darker background for contrast
+          background: "#f1f5f9",
           border: "1px solid #cbd5e1",
           borderRadius: 16,
           boxShadow: "inset 0 0 20px rgba(0,0,0,0.05)",
           overflowX: "auto",
           textAlign: "center",
           minHeight: 600,
-          backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)", // Dot grid
-          backgroundSize: "20px 20px"
+          backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
+          backgroundSize: "20px 20px",
         }}
       >
         <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: "100%" }}>
@@ -544,13 +623,8 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
 
           {forest?.length > 0 && (
             <>
-              {/* Connector from root to forest */}
               <div style={{ width: 4, height: 30, background: "#cbd5e1" }} />
-
-              {/* ✅ subtree-aware root connector */}
               <ConnectorSVG childWidths={forestWidths} />
-
-              {/* ✅ subtree-aware forest row */}
               <div style={{ width: forestTotalWidth, display: "flex", gap: GAP_X, alignItems: "flex-start" }}>
                 {forest.map((root, idx) => (
                   <div
@@ -580,18 +654,93 @@ function TrackGraph({ track, forest, loading, error, tracks, selectedTrackId, on
   );
 }
 
+/* =========================================================
+   ✅ Minimal Track Badge UI
+========================================================= */
+function TrackBadge({ title, earned, onClick }) {
+  const bg = earned ? "#111827" : "#f3f4f6";
+  const fg = earned ? "white" : "#6b7280";
+  const border = earned ? "#111827" : "#e5e7eb";
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: "100%",
+        borderRadius: 12,
+        border: `1px solid ${border}`,
+        background: bg,
+        color: fg,
+        padding: 12,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        cursor: "pointer",
+        transition: "transform 0.08s ease",
+      }}
+      onMouseDown={(e) => (e.currentTarget.style.transform = "translateY(1px)")}
+      onMouseUp={(e) => (e.currentTarget.style.transform = "translateY(0)")}
+      title={earned ? "Badge earned" : "Complete all leaf nodes to earn"}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <div
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 10,
+            background: earned ? "rgba(255,255,255,0.14)" : "white",
+            border: earned ? "1px solid rgba(255,255,255,0.18)" : "1px solid #e5e7eb",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          {earned ? <Award size={18} color="white" /> : <Award size={18} color="#9ca3af" />}
+        </div>
+        <div style={{ fontWeight: 800, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {title}
+        </div>
+      </div>
+
+      {earned ? (
+        <div
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: "50%",
+            background: "#fbbf24",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            border: "2px solid rgba(255,255,255,0.9)",
+          }}
+        >
+          <Check size={12} color="white" strokeWidth={4} />
+        </div>
+      ) : (
+        <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#e5e7eb", flexShrink: 0 }} />
+      )}
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const days = useMemo(() => getLastNDays(90), []);
-
 
   const [tracks, setTracks] = useState([]);
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const [track, setTrack] = useState(null);
 
-  // ✅ forest instead of single tree
   const [forest, setForest] = useState([]);
   const [completedIds, setCompletedIds] = useState(new Set()); // Start empty
   const [contributionCounts, setContributionCounts] = useState({}); // YYYY-MM-DD -> count
+
+  /* ✅ Badge state: per-track leaf completion */
+  const [trackBadgeEarned, setTrackBadgeEarned] = useState({}); // trackId -> boolean
+  const [trackLeafStats, setTrackLeafStats] = useState({}); // trackId -> { leafTotal, leafDone }
 
   /* Side panel state */
   const [selectedPart, setSelectedPart] = useState(null);
@@ -614,7 +763,6 @@ export default function Dashboard() {
     setHasScrolledBottom(false);
     if (panelRef.current) {
       panelRef.current.scrollTop = 0;
-      // Check iteratively in case of layout shifts or short content
       const checkScroll = () => {
         if (panelRef.current) {
           const { scrollHeight, clientHeight } = panelRef.current;
@@ -623,7 +771,6 @@ export default function Dashboard() {
           }
         }
       };
-      // Run immediately and after a short tick for layout
       checkScroll();
       setTimeout(checkScroll, 100);
     }
@@ -631,7 +778,6 @@ export default function Dashboard() {
 
   const handlePanelScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
-    // Allow a small buffer (e.g. 10px)
     if (scrollTop + clientHeight >= scrollHeight - 20) {
       setHasScrolledBottom(true);
     }
@@ -645,17 +791,15 @@ export default function Dashboard() {
       const res = await fetch("http://localhost:8000/submit/reading", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: user.id, part_id: selectedPart.id })
+        body: JSON.stringify({ user_id: user.id, part_id: selectedPart.id }),
       });
 
       if (res.ok) {
-        // Update local state immediately
-        setCompletedIds(prev => {
+        setCompletedIds((prev) => {
           const next = new Set(prev);
           next.add(selectedPart.id);
           return next;
         });
-        // Close panel or show success? Let's just update button state
       } else {
         console.error("Failed to mark complete");
       }
@@ -681,50 +825,43 @@ export default function Dashboard() {
     }
 
     if (!currentUser) {
-      // Fallback
       currentUser = { name: "Placeholder User", email: "guest@example.com", isGuest: true };
     }
 
     setUser(currentUser);
 
-    // Fetch contributions if not guest
     async function fetchContributions() {
       if (currentUser.isGuest || !currentUser.id) return;
 
       try {
-        // Find docs where user_id == currentUser.id
         const q = query(collection(db, "contributions"), where("user_id", "==", currentUser.id));
         const snap = await getDocs(q);
         const ids = new Set();
         const counts = {};
 
-        snap.forEach(doc => {
-          const data = doc.data();
-          // ID Logic
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
           if (data.part_id) ids.add(data.part_id);
-          else ids.add(doc.id);
+          else ids.add(docSnap.id);
 
-          // Count Logic (Date Heatmap)
           if (data.completed_at) {
             try {
-              const dateStr = new Date(data.completed_at).toISOString().split('T')[0]; // YYYY-MM-DD
+              const dateStr = new Date(data.completed_at).toISOString().split("T")[0];
               counts[dateStr] = (counts[dateStr] || 0) + 1;
             } catch (e) {
               console.warn("Invalid date in contribution:", data.completed_at);
             }
           }
         });
-        console.log("Fetched contributions:", ids);
+
         setCompletedIds(ids);
         setContributionCounts(counts);
       } catch (err) {
         console.error("Error fetching contributions:", err);
-        // Don't block UI, just empty set
       }
     }
 
     fetchContributions();
-
   }, [navigate]);
 
   const handlePartClick = (node) => {
@@ -784,17 +921,12 @@ export default function Dashboard() {
 
         const partsPath = collectionPathFromTrack(t);
 
-        // ✅ KEY CHANGE: start from track.parts (array) immediately
         const builtForest = await buildPartsForest(t.parts, partsPath, completedIds, {
           maxDepth: 10,
           maxNodes: 500,
         });
 
         setForest(builtForest);
-
-        console.log("Selected track:", t);
-        console.log("Using parts collection:", partsPath);
-        console.log("Built forest:", builtForest);
       } catch (e) {
         console.error(e);
         setGraphError(String(e?.message || e));
@@ -805,6 +937,62 @@ export default function Dashboard() {
 
     build();
   }, [selectedTrackId, tracks, completedIds]);
+
+  /* =========================================================
+     ✅ BADGE FIX: recompute earned badges using LEAF NODES
+     Badge awarded only if ALL leaf nodes under track.parts
+     (the main children under the track root) are completed.
+  ========================================================= */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function computeBadges() {
+      if (!tracks || tracks.length === 0) {
+        setTrackBadgeEarned({});
+        setTrackLeafStats({});
+        return;
+      }
+
+      const cache = new Map(); // shared doc cache across tracks
+      const earnedMap = {};
+      const statsMap = {};
+
+      // keep this bounded to avoid runaway fetches
+      const opts = { maxDepth: 20, maxNodes: 2500, cache };
+
+      for (const t of tracks) {
+        try {
+          const { leafIds } = await collectLeafIdsForTrack(t, opts);
+
+          const leafTotal = leafIds.size;
+          let leafDone = 0;
+          for (const id of leafIds) {
+            if (completedIds.has(id)) leafDone++;
+          }
+
+          const earned = leafTotal > 0 && leafDone === leafTotal;
+
+          earnedMap[t.id] = earned;
+          statsMap[t.id] = { leafTotal, leafDone };
+        } catch (e) {
+          console.warn("Badge calc failed for track", t?.id, e);
+          earnedMap[t.id] = false;
+          statsMap[t.id] = { leafTotal: 0, leafDone: 0 };
+        }
+      }
+
+      if (!cancelled) {
+        setTrackBadgeEarned(earnedMap);
+        setTrackLeafStats(statsMap);
+      }
+    }
+
+    computeBadges();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tracks, completedIds]);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f9fafb" }}>
@@ -846,21 +1034,37 @@ export default function Dashboard() {
             />
           </div>
 
-          <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "600", color: "#111827", marginBottom: "24px" }}>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "18px",
+              fontWeight: "600",
+              color: "#111827",
+              marginBottom: "24px",
+            }}
+          >
             {user?.name || user?.email || "User"}
           </h3>
 
-          {/* Recent Activity (GitHub Style - Light Theme) */}
+          {/* Recent Activity */}
           <div style={{ textAlign: "left", background: "white", padding: "16px", borderRadius: 12, border: "1px solid #e5e7eb" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-              <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <h4
+                style={{
+                  margin: 0,
+                  fontSize: "14px",
+                  fontWeight: "600",
+                  color: "#374151",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
                 Recent Activity
               </h4>
               <span style={{ fontSize: 10, color: "#6b7280" }}>Last 90 Days</span>
             </div>
 
             <div style={{ display: "flex", gap: 8 }}>
-              {/* Day Labels */}
               <div style={{ display: "grid", gridTemplateRows: "repeat(7, 1fr)", gap: 3, paddingRight: 4, height: 96 }}>
                 <span style={{ fontSize: 10, color: "#6b7280", lineHeight: "10px", alignSelf: "center" }}>Mon</span>
                 <span />
@@ -872,27 +1076,26 @@ export default function Dashboard() {
               </div>
 
               <div style={{ flex: 1 }}>
-                {/* Month Labels (Approximate) */}
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, paddingLeft: 2, paddingRight: 2 }}>
-                  {[0, 30, 60].map(offset => {
+                  {[0, 30, 60].map((offset) => {
                     const d = days[offset];
                     return (
                       <span key={offset} style={{ fontSize: 10, color: "#6b7280" }}>
-                        {d ? d.toLocaleString('default', { month: 'short' }) : ""}
+                        {d ? d.toLocaleString("default", { month: "short" }) : ""}
                       </span>
                     );
                   })}
                 </div>
 
-                {/* The Grid */}
-                <div style={{
-                  display: "grid",
-                  gridTemplateRows: "repeat(7, 1fr)",
-                  gridAutoFlow: "column",
-                  gap: 3,
-                  height: 96
-                }}>
-                  {/* Padding for start day (Mon start) */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateRows: "repeat(7, 1fr)",
+                    gridAutoFlow: "column",
+                    gap: 3,
+                    height: 96,
+                  }}
+                >
                   {Array.from({ length: (days[0].getDay() + 6) % 7 }).map((_, i) => (
                     <div key={`pad-${i}`} style={{ width: 10, height: 10 }} />
                   ))}
@@ -901,11 +1104,10 @@ export default function Dashboard() {
                     const key = formatDateKey(d);
                     const count = contributionCounts[key] || 0;
 
-                    // Purple/Pink Theme (Light Background)
-                    let bg = "#f3f4f6"; // Empty - light gray
-                    if (count > 0) bg = "#ddd6fe"; // Purple 200
-                    if (count > 1) bg = "#c084fc"; // Purple 400
-                    if (count > 3) bg = "#f472b6"; // Pink 400
+                    let bg = "#f3f4f6";
+                    if (count > 0) bg = "#d1fae5";
+                    if (count > 1) bg = "#6ee7b7";
+                    if (count > 3) bg = "#10b981";
 
                     return (
                       <div
@@ -916,7 +1118,7 @@ export default function Dashboard() {
                           height: 10,
                           borderRadius: 2,
                           background: bg,
-                          border: count === 0 ? "1px solid #e5e7eb" : "none"
+                          border: count === 0 ? "1px solid #e5e7eb" : "none",
                         }}
                       />
                     );
@@ -926,6 +1128,56 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* ✅ Track Badges (FIXED LOGIC: leaf completion under track.parts) */}
+          <div style={{ marginTop: 16, textAlign: "left" }}>
+            <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "600", color: "#374151", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Track Badges
+            </h4>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {tracks.map((t) => {
+                const earned = !!trackBadgeEarned[t.id];
+                const stats = trackLeafStats[t.id] || { leafTotal: 0, leafDone: 0 };
+
+                // Use colored badge if earned, grayscale if not
+                const badgeSrc = earned
+                  ? `/badges/${t.id}.png`
+                  : `/badges/${t.id}-gray.png`;
+
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => setSelectedTrackId(t.id)}
+                    title={`${t.name}${earned ? " - Completed!" : ` - ${stats.leafDone}/${stats.leafTotal} completed`}`}
+                    style={{
+                      padding: 8,
+                      borderRadius: 8,
+                      background: earned ? "#f0fdf4" : "#f9fafb",
+                      border: `1px solid ${earned ? "#86efac" : "#e5e7eb"}`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    <img
+                      src={badgeSrc}
+                      alt={t.name}
+                      style={{
+                        width: "100%",
+                        height: "auto",
+                        maxWidth: 60,
+                        opacity: earned ? 1 : 0.6
+                      }}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -1005,12 +1257,25 @@ export default function Dashboard() {
                 {selectedPart.description || "No description available."}
               </div>
 
-              {/* Placeholder for content */}
-              <div style={{ marginTop: 40, height: 200, background: "#f9fafb", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>
-                {/* Long content simulation */}
+              <div
+                style={{
+                  marginTop: 40,
+                  height: 200,
+                  background: "#f9fafb",
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#9ca3af",
+                }}
+              >
                 {Array.from({ length: 5 }).map((_, i) => (
                   <p key={i}>
-                    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+                    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et
+                    dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut
+                    aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum
+                    dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui
+                    officia deserunt mollit anim id est laborum.
                   </p>
                 ))}
               </div>
@@ -1038,19 +1303,18 @@ export default function Dashboard() {
                         transition: "all 0.2s ease",
                         display: "flex",
                         alignItems: "center",
-                        gap: 8
+                        gap: 8,
                       }}
                     >
-                      {isMarkingComplete ? "Saving..." : (hasScrolledBottom ? "Mark as Completed" : "Scroll to finish")}
+                      {isMarkingComplete ? "Saving..." : hasScrolledBottom ? "Mark as Completed" : "Scroll to finish"}
                     </button>
                   )}
                 </div>
               )}
             </div>
           </>
-        )
-        }
-      </main >
-    </div >
+        )}
+      </main>
+    </div>
   );
 }
