@@ -1018,7 +1018,7 @@ export default function Dashboard() {
         >
           <div style={{ marginBottom: "16px" }}>
             <img
-              src="/assets/.png"
+              src="/badges/profile/profile.png"
               alt="Profile"
               style={{
                 width: "60%",
