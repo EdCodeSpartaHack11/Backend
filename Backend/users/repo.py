@@ -41,6 +41,15 @@ class MockCollection:
     def document(self, doc_id):
         return MockDocument(self._docs, doc_id)
 
+    def add(self, data):
+        # Simulate firestore .add() which returns (update_time, document_ref)
+        # For mock, we just generate a random ID
+        import uuid
+        doc_id = str(uuid.uuid4())
+        print(f"MOCK DB: Adding document to collection with ID {doc_id}: {data}")
+        self._docs[doc_id] = data
+        return None, MockDocument(self._docs, doc_id)
+
 class MockDB:
     def __init__(self):
         self._collections = {}
