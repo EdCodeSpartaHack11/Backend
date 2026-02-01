@@ -104,6 +104,13 @@ async function buildPartsTreeFromRoot(
 
     // Status Logic
     const isCompleted = completedIds.has(partId);
+
+    // DEBUG: Log completion check
+    console.log(`🔍 Checking node: ${p.name || partId}`);
+    console.log(`   - Part ID: ${partId}`);
+    console.log(`   - Is Completed: ${isCompleted}`);
+    console.log(`   - All Completed IDs:`, Array.from(completedIds));
+
     let status = "locked";
 
     if (isCompleted) {
@@ -784,27 +791,45 @@ export default function Dashboard() {
   };
 
   const handleMarkCompleted = async () => {
-    if (!selectedPart || !user || !user.id || isMarkingComplete) return;
+    if (!selectedPart || !user || !user.id || isMarkingComplete) {
+      console.error("❌ Cannot mark complete - missing data:", {
+        selectedPart: selectedPart?.id,
+        userId: user?.id,
+        isMarkingComplete
+      });
+      return;
+    }
 
     try {
       setIsMarkingComplete(true);
+
+      const payload = { user_id: user.id, part_id: selectedPart.id };
+      console.log("📤 Sending to /submit/reading:", payload);
+
       const res = await fetch("http://localhost:8000/submit/reading", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: user.id, part_id: selectedPart.id }),
+        body: JSON.stringify(payload),
       });
 
+      console.log("📥 Response status:", res.status);
+
       if (res.ok) {
+        const data = await res.json();
+        console.log("✅ Success:", data);
         setCompletedIds((prev) => {
           const next = new Set(prev);
           next.add(selectedPart.id);
           return next;
         });
       } else {
-        console.error("Failed to mark complete");
+        const errorText = await res.text();
+        console.error("❌ Bad request:", res.status, errorText);
+        alert(`Failed to save: ${res.status} - ${errorText}`);
       }
     } catch (e) {
-      console.error(e);
+      console.error("❌ Network error:", e);
+      alert(`Error: ${e.message}`);
     } finally {
       setIsMarkingComplete(false);
     }
@@ -862,6 +887,18 @@ export default function Dashboard() {
     }
 
     fetchContributions();
+
+    // ✅ Auto-refresh when window gets focus (returning from editor)
+    const handleFocus = () => {
+      console.log("🔄 Window focused - refreshing contributions");
+      fetchContributions();
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [navigate]);
 
   const handlePartClick = (node) => {
