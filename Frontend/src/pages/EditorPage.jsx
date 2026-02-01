@@ -10,6 +10,7 @@ const EditorPage = () => {
   const [isOutputOpen, setIsOutputOpen] = useState(false)
   const [rightPanelView, setRightPanelView] = useState('assistant')
   const [language, setLanguage] = useState('javascript')
+  const [canSubmit, setCanSubmit] = useState(false)
 
   const [searchParams] = useSearchParams()
   const partId = searchParams.get('partId')
@@ -68,10 +69,36 @@ const EditorPage = () => {
       const data = await response.json()
       console.log("Execution Response:", data)
 
-      // Assuming reponse might correspond to stdout or similar. 
-      // Adjust based on actual server response structure. 
-      // For now, dumping the JSON.
-      setOutput(`> Request sent successfully!\n\nResponse:\n${JSON.stringify(data, null, 2)}`)
+      // Handle Status
+      if (data.status === "accepted") {
+        setCanSubmit(true)
+      } else {
+        setCanSubmit(false)
+      }
+
+      // Format Output
+      let formattedOutput = ""
+      if (data.tests && Array.isArray(data.tests)) {
+        formattedOutput = data.tests.map(t => {
+          const status = t.passed ? "Passed" : "Failed"
+          let details = ""
+          if (!t.passed) {
+            // Check if expected is present (it might be undefined if not returned by backend, but we added it in python)
+            const exp = t.expected !== undefined ? t.expected : "?"
+            const got = t.stdout !== undefined ? t.stdout.trim() : "?"
+            details = `\n   Expected: ${JSON.stringify(exp)}\n   Got: ${JSON.stringify(got)}`
+            if (t.stderr) details += `\n   Error: ${t.stderr}`
+          }
+          return `> TestCase ${t.id} : ${status}${details}`
+        }).join("\n\n")
+
+        formattedOutput += `\n\n> Final Status: ${data.status}`
+      } else {
+        // Fallback if no tests array
+        formattedOutput = `> Response:\n${JSON.stringify(data, null, 2)}`
+      }
+
+      setOutput(formattedOutput)
 
     } catch (err) {
       console.error("Execution failed:", err)
@@ -219,24 +246,62 @@ const EditorPage = () => {
             ← Return to Dashboard
           </button>
           <button
-            onClick={() => {
-              alert('Problem marked as completed!')
-              // TODO: Save completion status to backend
+            onClick={async () => {
+              if (canSubmit) {
+                // Get user email
+                let userEmail = "guest@example.com"
+                try {
+                  const storedUser = localStorage.getItem("user")
+                  if (storedUser) {
+                    const u = JSON.parse(storedUser)
+                    if (u.email) userEmail = u.email
+                  }
+                } catch (e) {
+                  console.error("Error parsing user for completion:", e)
+                }
+
+                try {
+                  const res = await fetch('http://localhost:8000/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      project_id: partId || "default_project",
+                      email: userEmail
+                    })
+                  })
+                  if (res.ok) {
+                    alert('Problem marked as completed! Contribution logged.')
+                    // Optionally set state to disable button again or show checkmark
+                  } else {
+                    alert('Failed to log completion. See console.')
+                    console.error(await res.text())
+                  }
+                } catch (e) {
+                  console.error("Completion error:", e)
+                  alert('Error marking completion.')
+                }
+              }
             }}
+            disabled={!canSubmit}
             style={{
               padding: '10px 24px',
-              backgroundColor: '#10b981',
-              color: 'white',
+              backgroundColor: canSubmit ? '#10b981' : '#334155',
+              color: canSubmit ? 'white' : '#94a3b8',
               border: 'none',
               borderRadius: '8px',
-              cursor: 'pointer',
+              cursor: canSubmit ? 'pointer' : 'not-allowed',
               fontWeight: '600',
               fontSize: '14px',
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
-              transition: 'all 0.2s'
+              boxShadow: canSubmit ? '0 2px 8px rgba(16, 185, 129, 0.3)' : 'none',
+              transition: 'all 0.2s',
+              opacity: canSubmit ? 1 : 0.7
             }}
-            onMouseOver={(e) => (e.target.style.backgroundColor = '#059669')}
-            onMouseOut={(e) => (e.target.style.backgroundColor = '#10b981')}
+            onMouseOver={(e) => {
+              if (canSubmit) e.target.style.backgroundColor = '#059669'
+            }}
+            onMouseOut={(e) => {
+              if (canSubmit) e.target.style.backgroundColor = '#10b981'
+            }}
           >
             ✓ Mark as Completed
           </button>
